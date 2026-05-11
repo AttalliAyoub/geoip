@@ -97,6 +97,10 @@ paths:
           name: edition
           description: Defaults to first edition listed in the configuration
           schema: { type: string }
+        - in: query
+          name: limit
+          description: Limit number of results (defaults to 10)
+          schema: { type: integer, default: 10 }
       responses:
         200:
           description: Success

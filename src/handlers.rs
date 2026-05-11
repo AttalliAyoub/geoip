@@ -163,7 +163,7 @@ async fn lookup_geoip_reverse(
 		));
 	}
 	
-	match state.maxmind.reverse_lookup(query.country.as_deref(), query.city.as_deref(), edition) {
+	match state.maxmind.reverse_lookup(query.country.as_deref(), query.city.as_deref(), edition, query.limit) {
 		Ok(networks) => {
 			let elapsed = start.elapsed();
 			histogram!(

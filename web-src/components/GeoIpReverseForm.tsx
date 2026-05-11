@@ -7,6 +7,7 @@ const EDITION_STORAGE_KEY = "geoip.edition";
 interface GeoIpReverseFormData {
 	query: string;
 	type: "country" | "city";
+	limit: number;
 }
 
 export interface GeoIpReverseFormProps {
@@ -19,7 +20,7 @@ export const GeoIpReverseForm: React.FC<GeoIpReverseFormProps> = ({
 	recaptchaFn,
 }) => {
 	const {register, handleSubmit} = useForm<GeoIpReverseFormData>({
-		defaultValues: { type: "country", query: "" }
+		defaultValues: { type: "country", query: "", limit: 10 }
 	});
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -60,6 +61,7 @@ export const GeoIpReverseForm: React.FC<GeoIpReverseFormProps> = ({
 						country: data.type === "country" ? data.query : undefined,
 						city: data.type === "city" ? data.query : undefined,
 						edition,
+						limit: data.limit,
 					},
 					headers,
 				});
@@ -95,6 +97,13 @@ export const GeoIpReverseForm: React.FC<GeoIpReverseFormProps> = ({
 							placeholder="Enter country code, name or city name"
 							className="input join-item w-full md:flex-1"
 							{...register("query", {required: true})}
+							required
+						/>
+						<input
+							type="number"
+							placeholder="Limit"
+							className="input join-item w-24"
+							{...register("limit", {required: true, min: 1, valueAsNumber: true})}
 							required
 						/>
 						<select

@@ -481,6 +481,7 @@ impl MaxMindService {
 		country: Option<&str>,
 		city: Option<&str>,
 		edition: Option<&str>,
+		limit: Option<usize>,
 	) -> Result<Vec<String>, MaxMindServiceError> {
 		let reader = self.get_reader(edition)?;
 		let is_ready = reader.reverse_index_ready.load();
@@ -488,20 +489,23 @@ impl MaxMindService {
 			return Err(MaxMindServiceError::MissingDatabase); // Reverse index not ready
 		}
 		
+		let limit_val = limit.unwrap_or(10) as i64;
 		let conn = rusqlite::Connection::open(&reader.reverse_db_path)?;
 		let mut results = Vec::new();
 		
 		if let Some(c) = country {
-			let mut stmt = conn.prepare("SELECT network FROM reverse_index WHERE type = 'country' AND term = ?")?;
-			let rows = stmt.query_map([c.to_lowercase()], |row| row.get::<_, String>(0))?;
+			let mut stmt = conn.prepare("SELECT network FROM reverse_index WHERE type = 'country' AND term LIKE ? LIMIT ?")?;
+			let like_term = format!("{}%", c.to_lowercase());
+			let rows = stmt.query_map(rusqlite::params![like_term, limit_val], |row| row.get::<_, String>(0))?;
 			for net in rows {
 				if let Ok(n) = net {
 					results.push(n);
 				}
 			}
 		} else if let Some(c) = city {
-			let mut stmt = conn.prepare("SELECT network FROM reverse_index WHERE type = 'city' AND term = ?")?;
-			let rows = stmt.query_map([c.to_lowercase()], |row| row.get::<_, String>(0))?;
+			let mut stmt = conn.prepare("SELECT network FROM reverse_index WHERE type = 'city' AND term LIKE ? LIMIT ?")?;
+			let like_term = format!("{}%", c.to_lowercase());
+			let rows = stmt.query_map(rusqlite::params![like_term, limit_val], |row| row.get::<_, String>(0))?;
 			for net in rows {
 				if let Ok(n) = net {
 					results.push(n);

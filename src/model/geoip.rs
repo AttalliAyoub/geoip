@@ -41,6 +41,7 @@ pub struct GeoIpReverseLookupQuery {
 	pub country: Option<String>,
 	pub city: Option<String>,
 	pub edition: Option<String>,
+	pub limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]
