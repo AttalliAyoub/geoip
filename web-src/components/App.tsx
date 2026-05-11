@@ -135,7 +135,7 @@ export const App: React.FC = () => {
 						<a className="link" href="https://www.maxmind.com/" target="_blank">www.maxmind.com</a>
 					</div>
 					<div>
-						<a className="link" href="https://github.com/quoi-dev/geoip" target="_blank">
+						<a className="link" href="https://github.com/AttalliAyoub/geoip" target="_blank">
 							Project source code on GitHub
 						</a>
 					</div>

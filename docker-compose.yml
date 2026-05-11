@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  geoip:
+    image: ghcr.io/attalliayoub/geoip:latest
+    # If you prefer to build the image locally from source, uncomment the 'build: .' line below
+    # and comment out the 'image:' line above.
+    # build: .
+    container_name: geoip-service
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # MaxMind configuration (Optional, but required for auto-updates)
+      # You can set these in a .env file or directly here.
+      - MAXMIND_ACCOUNT_ID=${MAXMIND_ACCOUNT_ID:-""}
+      - MAXMIND_LICENCE_KEY=${MAXMIND_LICENCE_KEY:-""}
+      
+      # UI mapping integration (Optional)
+      - OSM_TILES_URL=https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png
+      
+      # Additional configuration options (uncomment to use)
+      # - API_KEY=your_secure_api_key_here
+      # - AUTO_UPDATE_INTERVAL=24
+      # - TZDATA_AUTO_UPDATE_INTERVAL=24
+    volumes:
+      - geoip_data:/data
+
+volumes:
+  geoip_data:
+    # This volume persists the downloaded MaxMind (.mmdb), SQLite reverse index, and Timezone databases.

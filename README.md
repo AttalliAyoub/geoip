@@ -1,165 +1,139 @@
-# GeoIP service
+# GeoIP Service
 
-Demo: https://geoip.quoi.dev/
+![License](https://img.shields.io/badge/License-MIT-blue)
+
+A high-performance, self-hosted GeoIP and Timezone service built with Rust and React. It provides automatic MaxMind database updates, robust API endpoints for IP detection and reverse lookups, and a modern web interface.
+
+Demo: [https://geoip.quoi.dev/](https://geoip.quoi.dev/)
 
 ![Screenshot](/screenshot.png)
 
 ## Features
 
-- Very performant thanks to native executable
-- Requester IP detection
-- GeoIP lookups using MaxMind databases
-- Simultaneous serving of several MaxMind database editions
-  (City, ASN etc.)
-- Automatic updates using MaxMind account and licence key or
-  custom download url with or without authorization
-- Serve latest MMDB archive files
-  - One GeoIP service can supply MMDB files to others in order
-    to reduce MaxMind API quota usage
-  - GeoIP service can supply up-to-date files to
-    third-party applications
-- Protect data endpoints with API key
-- `posix_timezone` field computed from `timezone`
-  (useful for embedded devices without timezone database, 
-  e.g. ESP32 and other newlib targets)
-- Endpoint exposing list of timezone mappings to
-  POSIX spec strings
-- Automatic updates of timezone database
-- Serve latest timezone database archive
-- Fancy Web UI with service status and manual GeoIP lookups
-- OpenStreetMap integration for Web UI
-- Protect Web UI with Recaptcha v3
-- OpenAPI spec and Swagger UI
-- Easy-to-use Docker image
+- **Blazing Fast**: Built with Rust and Axum for maximum performance and a low memory footprint.
+- **Requester IP Detection**: Automatically detect and return the client's IP address.
+- **GeoIP Lookups**: Resolve IP addresses to geographic locations using MaxMind databases.
+- **Reverse GeoIP Lookups**: Search for IP network blocks by country or city name with prefix matching and configurable result limiting.
+- **Multi-Edition Support**: Simultaneously serve multiple MaxMind database editions (City, ASN, etc.).
+- **Automatic Updates**: Keeps MaxMind and Timezone databases up to date automatically.
+- **Database Mirroring**: Serve MMDB and Timezone archives to other instances, reducing MaxMind API quota usage across your infrastructure.
+- **Embedded Systems Friendly**: Exposes a list of timezone mappings to POSIX spec strings (`posix_timezone` computed from `timezone`).
+- **Security**: Protect endpoints with API keys and secure the Web UI with Recaptcha v3.
+- **Modern Web UI**: React-based frontend with OpenStreetMap integration, service status monitoring, and interactive GeoIP and Reverse lookups.
+- **Developer Experience**: Includes an OpenAPI specification and Swagger UI out of the box.
 
-## Quick setup
+## Quick Start
+
+The easiest way to run the service is using Docker or Docker Compose.
+
+### Using Docker Compose (Recommended)
+
+1. Ensure you have the included `docker-compose.yml` file.
+2. (Optional) Create a `.env` file in the same directory to store your MaxMind credentials:
+   ```env
+   MAXMIND_ACCOUNT_ID=your_account_id
+   MAXMIND_LICENCE_KEY=your_license_key
+   ```
+3. Run the service in the background:
+   ```shell
+   docker-compose up -d
+   ```
+
+### Using Docker Run
 
 ```shell
-docker run \
-  -e MAXMIND_ACCOUNT_ID=XXXX \
-  -e MAXMIND_LICENCE_KEY=YYYY \
-  -e OSM_TILES_URL="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" \ # Optional, but fancy
+docker run -d \
+  --name geoip-service \
+  -e MAXMIND_ACCOUNT_ID="your_account_id" \
+  -e MAXMIND_LICENCE_KEY="your_license_key" \
+  -e OSM_TILES_URL="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" \
   -v geoip_data:/data \
   -p 8080:8080 \
-  ghcr.io/quoi-dev/geoip:latest
+  ghcr.io/attalliayoub/geoip:latest
 ```
 
-You can get MaxMind account id and licence key for free here:
-https://dev.maxmind.com/geoip/geolite2-free-geolocation-data/
+> **Note**: You can get a MaxMind account ID and license key for free [here](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data/).
 
-After executing this command, you'll be able to access 
-GeoIP service on http://localhost:8080/.
+After starting the container, you can access the Web UI and API at `http://localhost:8080/`.
 
-## Endpoints
+## API Endpoints
 
-- `GET /api/status` - Query system status 
-  (database versions etc).
-- `GET /api/ip` - Detect requester IP.
-- `GET /api/geoip` - Perform GeoIP lookup.
-  Can be protected with API key.
-- `GET /api/timezones` - Get all known timezone mappings from
-  ids to POSIX specification (useful for embedded systems
-  without timezone database). Can be protected with API key.
-- `GET /files/mmdb/{edition}` - Download latest MMDB database
-  compressed into `tar.gz`, supports `If-Modified-Since` header.
-  Can be used as `MAXMIND_DOWNLOAD_URL` for other instances.
-  Can be protected with API key.
-- `GET /files/tzdata` - Download latest timezone database
-  compressed into `tar.gz`, supports `If-Modified-Since` header.
-  Can be protected with API key.
+The service exposes several robust endpoints. Swagger UI is available at `/swagger-ui` and the OpenAPI specification at `/api/docs`.
 
-Swagger UI available on `/swagger-ui`,
-OpenAPI specification available on `/api/docs`.
+### Core
+- `GET /api/status` - Query system status, including database versions and last update checks.
+- `GET /api/ip` - Detect the requester's IP address.
+- `GET /api/timezones` - Get all known timezone mappings from IDs to POSIX specifications. *(Can be protected with API key)*
+
+### Lookups
+- `GET /api/geoip` - Perform a standard GeoIP lookup for an IP address. *(Can be protected with API key)*
+- `GET /api/geoip/reverse` - Perform a reverse GeoIP lookup to find network blocks by `country` or `city`. Supports partial name matching and result limiting (e.g., `?city=blid&limit=20`). *(Can be protected with API key)*
+
+### File Serving
+- `GET /files/mmdb/{edition}` - Download the latest MMDB database compressed as `tar.gz`. Supports the `If-Modified-Since` header. *(Can be protected with API key)*
+- `GET /files/tzdata` - Download the latest Timezone database compressed as `tar.gz`. Supports the `If-Modified-Since` header. *(Can be protected with API key)*
 
 ## Configuration
 
-- `LISTEN_ADDR` (optional) - socket address to bind HTTP server.
-  Defaults to `127.0.0.1:8080` for local setup and to
-  `0.0.0.0:8080` for Docker image.
-- `DATA_DIR` (required) - directory with `.mmdb` files,
-  must be writable if auto-updates are enabled. Defaults to
-  `/data` for Docker image.
-- `MAXMIND_ACCOUNT_ID` (optional) - MaxMind account id.
-- `MAXMIND_LICENCE_KEY` (optional) - MaxMind license key.
-- `MAXMIND_EDITIONS` (optional) - Comma-separated MaxMind 
-  database editions to use (defaults to `GeoLite2-City`)
-- `MAXMIND_DOWNLOAD_URL` (optional) - MaxMind database
-  download url. You can use `{edition}` placeholder.
-  Defaults to `https://download.maxmind.com/geoip/databases/{edition}/download?suffix=tar.gz`.
-  You can point download url to another GeoIP service instance
-  (e.g. `http://my-geoip-svc/files/mmdb/{edition}`).
-- `MAXMIND_BEARER_TOKEN` (optional) - Use bearer token for
-  `MAXMIND_DOWNLOAD_URL`. Useful if download url points to
-  another GeoIP service instance with `API_KEY` set.
-- `AUTO_UPDATE_INTERVAL` (optional) - Auto-update interval 
-  in hours. Defaults to 24 hours.
-- `API_KEY` (optional) - Protect `/api/geoip`, `/api/timezones` and 
-  `/files/**` endpoints with given bearer token.
-- `RECAPTCHA_SITE_KEY` (optional) - Protect `/api/geoip` endpoint
-  with Recaptcha v3. `API_KEY` bypasses captcha check,
-  Recaptcha bypasses `API_KEY` requirement (only for `/api/geoip`), 
-  if both are set. `RECAPTCHA_SITE_KEY` makes no sense without
-  API key set.
-  For demo purposes on https://geoip.quoi.dev. You can get
-  Recaptcha site key on https://www.google.com/recaptcha/admin/create.
-  Recaptcha script will be injected to frontend only 
-  if site key is set.
-- `RECAPTCHA_SECRET_KEY` (optional) - To be used with `RECAPTCHA_SITE_KEY`.
-- `OSM_TILES_URL` (optional) - Render OpenStreetMap centered on detected location.
-  You can use `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png` as a starting point
-  and switch to your own tile server if traffic increases.
-- `TZDATA_AUTO_UPDATE_INTERVAL` (optional) - Timezone database
-  auto-update interval in hours. Defaults to 24, if zero disables
-  tzdata auto-update.
-- `TZDATA_DOWNLOAD_URL` (optional) - Timezone database download
-  url. Defaults to `https://data.iana.org/time-zones/tzdata-latest.tar.gz`.
-- `TZDATA_BEARER_TOKEN` (optional) - Bearer token used for 
-  timezone database download. You don't need it
-  if you're using default download url.
-- `ZIC_PATH` (optional) - Timezone database compiler executable path.
-  GeoIP service tries to use system compiler (`zic` command),
-  but it might fail to find it on some systems (e.g. Alpine 
-  without `tzdata` and `tzdata-utils` packages or Windows). In this case timezone
-  database auto-updates will be disabled, but you can specify
-  `zic` executable path override and re-enable auto-updates.
-- `GOOGLE_TAG_ID` (optional) - Enable Google Analytics integration.
-  If this variable is not set, no Google Analytics scripts 
-  will be injected to the page.
+The service is highly configurable via environment variables:
 
-If `MAXMIND_ACCOUNT_ID` or `MAXMIND_DOWNLOAD_URL` are set, 
-GeoIP database automatic updates enabled, otherwise 
-you need to download, extract and place `mmdb` files to
-`DATA_DIR` by hand.
+### Server & Storage
+- `LISTEN_ADDR` - Socket address to bind the HTTP server. Defaults to `127.0.0.1:8080` (local) or `0.0.0.0:8080` (Docker).
+- `DATA_DIR` - Directory for storing `.mmdb` files. Must be writable if auto-updates are enabled. Defaults to `/data` in Docker.
 
-File names must have format `{edition}-{datetime}.mmdb`.
-Example: `GeoLite2-City-20251125154543.mmdb`.
+### MaxMind Integration
+- `MAXMIND_ACCOUNT_ID` - MaxMind account ID for automatic updates.
+- `MAXMIND_LICENCE_KEY` - MaxMind license key.
+- `MAXMIND_EDITIONS` - Comma-separated editions to use (e.g., `GeoLite2-City,GeoLite2-ASN`). Defaults to `GeoLite2-City`.
+- `MAXMIND_DOWNLOAD_URL` - Custom download URL. Use the `{edition}` placeholder. Defaults to MaxMind's official URL. Can point to another GeoIP instance.
+- `MAXMIND_BEARER_TOKEN` - Bearer token for downloading databases from a protected custom URL.
+- `AUTO_UPDATE_INTERVAL` - Auto-update interval in hours. Defaults to `24`.
 
-## Build
+*(Note: If `MAXMIND_ACCOUNT_ID` or `MAXMIND_DOWNLOAD_URL` are not set, automatic updates are disabled. You must manually place `{edition}-{datetime}.mmdb` files in the `DATA_DIR`.)*
 
-You need Rust and Node installed on your system.
+### Timezone Updates
+- `TZDATA_AUTO_UPDATE_INTERVAL` - Auto-update interval in hours. Set to `0` to disable. Defaults to `24`.
+- `TZDATA_DOWNLOAD_URL` - Timezone database download URL. Defaults to IANA's official URL.
+- `TZDATA_BEARER_TOKEN` - Bearer token for protected timezone download URLs.
+- `ZIC_PATH` - Override path for the `zic` timezone compiler executable.
+
+### Security & UI Integration
+- `API_KEY` - Protect `/api/geoip`, `/api/geoip/reverse`, `/api/timezones`, and `/files/**` endpoints with a Bearer token.
+- `RECAPTCHA_SITE_KEY` - Protect the Web UI lookup forms with Recaptcha v3.
+- `RECAPTCHA_SECRET_KEY` - Required if `RECAPTCHA_SITE_KEY` is set.
+- `OSM_TILES_URL` - Render OpenStreetMap maps on the Web UI. Example: `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png`.
+- `GOOGLE_TAG_ID` - Enable Google Analytics integration in the Web UI.
+
+## Building from Source
+
+To compile the application locally, you will need **Rust** and **Node.js (with pnpm)** installed on your system.
 
 ```shell
-npm i -g pnpm # if missing
+# 1. Install frontend dependencies
+npm i -g pnpm # if you don't have pnpm installed
 pnpm install
-pnpm openapi-ts # first time or after OpenAPI spec changes
+
+# 2. Generate OpenAPI client types
+pnpm openapi-ts # run this first time or after OpenAPI spec changes
+
+# 3. Build the frontend assets
 pnpm build
-cargo build
+
+# 4. Build the Rust backend
+cargo build --release
 ```
 
-Alternatively, you can build Docker image 
-using provided `Dockerfile`.
+Alternatively, you can build the Docker image using the provided `Dockerfile`:
+```shell
+docker build -t geoip-service .
+```
 
-## Tech stack
+## Tech Stack
 
-- Rust
-- Axum
-- Rsbuild
-- TypeScript
-- React
-- TailwindCSS
-- DaisyUI
-- MaxMind GeoLite2
-- OpenAPI
+- **Backend**: Rust, Axum, Rusqlite (for Reverse Lookups)
+- **Frontend**: TypeScript, React, TailwindCSS, DaisyUI, Rsbuild
+- **Data**: MaxMind GeoLite2, IANA Timezone Database
+- **API**: OpenAPI, Swagger UI
 
 ## License
 
