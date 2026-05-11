@@ -10,6 +10,7 @@ use chrono::DateTime;
 use flate2::read::GzDecoder;
 use log::{error, info, warn};
 use maxminddb::{geoip2, MaxMindDbError};
+use ipnetwork::IpNetwork;
 use thiserror::Error;
 use tokio::time::MissedTickBehavior;
 use crate::config::{AppConfig, DOWNLOAD_URL_EDITION_PLACEHOLDER};
@@ -30,6 +31,9 @@ pub enum MaxMindServiceError {
 	#[error(transparent)]
 	JoinError(#[from] tokio::task::JoinError),
 	
+	#[error(transparent)]
+	Rusqlite(#[from] rusqlite::Error),
+	
 	#[error("Unknown MaxMind database edition")]
 	UnknownEdition,
 	
@@ -43,6 +47,8 @@ struct MaxMindDbReader {
 	file_size: u64,
 	archive_file_size: Option<u64>,
 	info: Arc<ArchiveFileInfo>,
+	reverse_db_path: PathBuf,
+	reverse_index_ready: arc_swap::ArcSwapOption<bool>,
 }
 
 pub struct MaxMindService {
@@ -124,13 +130,159 @@ impl MaxMindService {
 			reader.metadata.database_type,
 			reader.metadata.build_epoch,
 		);
-		Ok(Arc::new(MaxMindDbReader {
+		let reverse_db_path = path.with_extension("reverse.db");
+		let is_ready = reverse_db_path.exists() && reverse_db_path.metadata().map(|m| m.len()).unwrap_or(0) > 0;
+		
+		let reader_arc = Arc::new(MaxMindDbReader {
 			path,
 			reader,
 			file_size,
 			archive_file_size: Some(archive_file_size),
 			info,
-		}))
+			reverse_db_path,
+			reverse_index_ready: arc_swap::ArcSwapOption::new(if is_ready { Some(Arc::new(true)) } else { None }),
+		});
+		if !is_ready {
+			Self::build_reverse_index_background(reader_arc.clone());
+		}
+		Ok(reader_arc)
+	}
+	
+	fn build_reverse_index_background(reader_arc: Arc<MaxMindDbReader>) {
+		let is_city = reader_arc.reader.metadata.database_type == "GeoLite2-City" || reader_arc.reader.metadata.database_type == "GeoIP2-City";
+		if !is_city {
+			return; // Only support reverse lookups for City databases
+		}
+		tokio::task::spawn_blocking(move || {
+			info!("Building SQLite reverse index for {}", reader_arc.path.display());
+			let start = std::time::Instant::now();
+			
+			let tmp_db_path = reader_arc.reverse_db_path.with_extension("reverse.db.tmp");
+			let _ = fs::remove_file(&tmp_db_path);
+			
+			// Open a connection to SQLite
+			let mut conn = match rusqlite::Connection::open(&tmp_db_path) {
+				Ok(c) => c,
+				Err(err) => {
+					error!("Failed to open SQLite database for reverse index: {err}");
+					return;
+				}
+			};
+			
+			// Setup schema
+			if let Err(err) = conn.execute_batch("
+				PRAGMA journal_mode = OFF;
+				PRAGMA synchronous = OFF;
+				CREATE TABLE IF NOT EXISTS reverse_index (
+					term TEXT NOT NULL,
+					type TEXT NOT NULL,
+					network TEXT NOT NULL
+				);
+			") {
+				error!("Failed to setup SQLite schema: {err}");
+				return;
+			}
+			
+			let tx = match conn.transaction() {
+				Ok(t) => t,
+				Err(err) => {
+					error!("Failed to start transaction: {err}");
+					return;
+				}
+			};
+			
+			let mut total_indexed = 0;
+			
+			{
+				let mut stmt = tx.prepare("INSERT INTO reverse_index (term, type, network) VALUES (?, ?, ?)").unwrap();
+				
+				// Helper to insert
+				let mut insert_term = |term: &str, t: &str, net: &IpNetwork| {
+					let _ = stmt.execute(rusqlite::params![term.to_lowercase(), t, net.to_string()]);
+				};
+				
+				// IPv4
+				let ipv4_net: IpNetwork = "0.0.0.0/0".parse().unwrap();
+				if let Ok(iter) = reader_arc.reader.within::<geoip2::City>(ipv4_net) {
+					for item in iter {
+						if let Ok(info) = item {
+							let net = info.ip_net;
+							let mut inserted = false;
+							if let Some(c) = info.info.country.as_ref().and_then(|c| c.iso_code) {
+								insert_term(c, "country", &net);
+								inserted = true;
+							}
+							if let Some(n) = info.info.country.as_ref().and_then(|c| c.names.as_ref()).and_then(|names| names.get("en")) {
+								insert_term(n, "country", &net);
+								inserted = true;
+							}
+							if let Some(c) = info.info.city.as_ref().and_then(|c| c.names.as_ref()).and_then(|names| names.get("en")) {
+								insert_term(c, "city", &net);
+								inserted = true;
+							}
+							if inserted {
+								total_indexed += 1;
+							}
+						}
+					}
+				}
+				
+				// IPv6
+				let ipv6_net: IpNetwork = "::/0".parse().unwrap();
+				if let Ok(iter) = reader_arc.reader.within::<geoip2::City>(ipv6_net) {
+					for item in iter {
+						if let Ok(info) = item {
+							let net = info.ip_net;
+							let mut inserted = false;
+							if let Some(c) = info.info.country.as_ref().and_then(|c| c.iso_code) {
+								insert_term(c, "country", &net);
+								inserted = true;
+							}
+							if let Some(n) = info.info.country.as_ref().and_then(|c| c.names.as_ref()).and_then(|names| names.get("en")) {
+								insert_term(n, "country", &net);
+								inserted = true;
+							}
+							if let Some(c) = info.info.city.as_ref().and_then(|c| c.names.as_ref()).and_then(|names| names.get("en")) {
+								insert_term(c, "city", &net);
+								inserted = true;
+							}
+							if inserted {
+								total_indexed += 1;
+							}
+						}
+					}
+				}
+			}
+			
+			if let Err(err) = tx.commit() {
+				error!("Failed to commit SQLite transaction: {err}");
+				return;
+			}
+			
+			// Create index after inserting for faster build time
+			info!("Creating indices for reverse index...");
+			if let Err(err) = conn.execute("CREATE INDEX IF NOT EXISTS idx_term_type ON reverse_index (type, term);", []) {
+				error!("Failed to create SQLite index: {err}");
+				return;
+			}
+			
+			if let Err(err) = conn.close() {
+				error!("Failed to close SQLite connection: {}", err.1);
+				return;
+			}
+			
+			if let Err(err) = fs::rename(&tmp_db_path, &reader_arc.reverse_db_path) {
+				error!("Failed to move completed reverse index database: {err}");
+				return;
+			}
+			
+			info!("Finished building reverse index for {} in {:.2}s. Indexed {} items.", 
+				reader_arc.path.display(), 
+				start.elapsed().as_secs_f32(),
+				total_indexed
+			);
+			reader_arc.reverse_index_ready.store(Some(Arc::new(true)));
+		});
 	}
 	
 	pub fn start_updater(&self) {
@@ -324,6 +476,42 @@ impl MaxMindService {
 		}))
 	}
 	
+	pub fn reverse_lookup(
+		&self,
+		country: Option<&str>,
+		city: Option<&str>,
+		edition: Option<&str>,
+	) -> Result<Vec<String>, MaxMindServiceError> {
+		let reader = self.get_reader(edition)?;
+		let is_ready = reader.reverse_index_ready.load();
+		if is_ready.is_none() {
+			return Err(MaxMindServiceError::MissingDatabase); // Reverse index not ready
+		}
+		
+		let conn = rusqlite::Connection::open(&reader.reverse_db_path)?;
+		let mut results = Vec::new();
+		
+		if let Some(c) = country {
+			let mut stmt = conn.prepare("SELECT network FROM reverse_index WHERE type = 'country' AND term = ?")?;
+			let rows = stmt.query_map([c.to_lowercase()], |row| row.get::<_, String>(0))?;
+			for net in rows {
+				if let Ok(n) = net {
+					results.push(n);
+				}
+			}
+		} else if let Some(c) = city {
+			let mut stmt = conn.prepare("SELECT network FROM reverse_index WHERE type = 'city' AND term = ?")?;
+			let rows = stmt.query_map([c.to_lowercase()], |row| row.get::<_, String>(0))?;
+			for net in rows {
+				if let Ok(n) = net {
+					results.push(n);
+				}
+			}
+		}
+		
+		Ok(results)
+	}
+
 	fn get_reader(
 		&self,
 		edition: Option<&str>,

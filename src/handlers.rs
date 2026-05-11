@@ -15,7 +15,7 @@ use metrics::histogram;
 use tower_http::services::{ServeDir, ServeFile};
 use utoipa_swagger_ui::SwaggerUi;
 use crate::extractors::{ApiKeyAuth, ApiKeyOrRecaptchaAuth, ClientIp};
-use crate::model::{ErrorDTO, GeoIpLookupQuery, GeoIpLookupResult, GeoIpStatus, IndexPageCtx, IpDetectResult};
+use crate::model::{ErrorDTO, GeoIpLookupQuery, GeoIpReverseLookupQuery, GeoIpLookupResult, GeoIpReverseLookupResult, GeoIpStatus, IndexPageCtx, IpDetectResult};
 use crate::state::{AppState, MaxMindServiceError};
 
 pub fn build_router(state: Arc<AppState>) -> Router {
@@ -32,6 +32,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 		.route("/api/status", get(get_status))
 		.route("/api/ip", get(detect_ip))
 		.route("/api/geoip", get(lookup_geoip))
+		.route("/api/geoip/reverse", get(lookup_geoip_reverse))
 		.route("/api/timezones", get(get_all_timezones))
 		.route("/api/metrics", get(|| async move { metric_handle.render() }))
 		.merge(
@@ -142,6 +143,45 @@ async fn lookup_geoip(
 		Err(MaxMindServiceError::MissingDatabase) => Err(ErrorDTO::new_static(
 			StatusCode::SERVICE_UNAVAILABLE,
 			"Missing MaxMind database",
+		)),
+		Err(err) => Err(err.into()),
+	}
+}
+
+async fn lookup_geoip_reverse(
+	State(state): State<Arc<AppState>>,
+	_auth: ApiKeyOrRecaptchaAuth,
+	Query(query): Query<GeoIpReverseLookupQuery>,
+) -> Result<Json<GeoIpReverseLookupResult>, ErrorDTO> {
+	let start = Instant::now();
+	let edition = query.edition.as_deref().or_else(|| state.maxmind.default_edition());
+	
+	if query.country.is_none() && query.city.is_none() {
+		return Err(ErrorDTO::new_static(
+			StatusCode::BAD_REQUEST,
+			"Must provide 'country' or 'city'",
+		));
+	}
+	
+	match state.maxmind.reverse_lookup(query.country.as_deref(), query.city.as_deref(), edition) {
+		Ok(networks) => {
+			let elapsed = start.elapsed();
+			histogram!(
+				"lookup_duration_seconds",
+				"edition" => edition.unwrap_or("Unknown").to_owned(),
+			).record(elapsed.as_secs_f64());
+			Ok(Json(GeoIpReverseLookupResult {
+				networks,
+				elapsed: elapsed.as_secs_f64(),
+			}))
+		},
+		Err(MaxMindServiceError::UnknownEdition) => Err(ErrorDTO::new_static(
+			StatusCode::NOT_FOUND,
+			"Unknown MaxMind database edition",
+		)),
+		Err(MaxMindServiceError::MissingDatabase) => Err(ErrorDTO::new_static(
+			StatusCode::SERVICE_UNAVAILABLE,
+			"Missing MaxMind database or reverse index not ready",
 		)),
 		Err(err) => Err(err.into()),
 	}

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import * as api from "../client";
 import { GeoIpForm } from "./GeoIpForm.tsx";
+import { GeoIpReverseForm } from "./GeoIpReverseForm.tsx";
 import { GeoIpStatus } from "./GeoIpStatus.tsx";
 import { useShowDialog } from "./DialogProvider.tsx";
 import { ApiKeyDialog } from "./ApiKeyDialog.tsx";
@@ -121,6 +122,10 @@ export const App: React.FC = () => {
 				databases={status?.databases ?? []}
 				recaptchaFn={recaptchaFn}
 				osmTilesUrl={pageCtx?.osm_tiles_url ?? undefined}
+			/>
+			<GeoIpReverseForm
+				databases={status?.databases ?? []}
+				recaptchaFn={recaptchaFn}
 			/>
 			{status && <GeoIpStatus status={status} />}
 			<footer className="footer sm:footer-horizontal footer-center">

@@ -36,11 +36,24 @@ pub struct GeoIpLookupQuery {
 	pub edition: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct GeoIpReverseLookupQuery {
+	pub country: Option<String>,
+	pub city: Option<String>,
+	pub edition: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct GeoIpLookupResult {
 	pub ip: IpAddr,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub info: Option<GeoIpInfo>,
+	pub elapsed: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GeoIpReverseLookupResult {
+	pub networks: Vec<String>,
 	pub elapsed: f64,
 }
 

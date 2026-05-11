@@ -33,3 +33,5 @@ futures = "0.3"
 httpdate = "1"
 which = "8"
 im = "15.1"
+ipnetwork = "0.21.1"
+rusqlite = { version = "0.39.0", features = ["bundled"] }

@@ -79,6 +79,46 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorDTO" }
   
+  /api/geoip/reverse:
+    get:
+      operationId: lookupGeoIpReverse
+      summary: Perform reverse GeoIP database lookup
+      security: [{ bearer: [] }]
+      parameters:
+        - in: query
+          name: country
+          description: Search by country code or name
+          schema: { type: string }
+        - in: query
+          name: city
+          description: Search by city name
+          schema: { type: string }
+        - in: query
+          name: edition
+          description: Defaults to first edition listed in the configuration
+          schema: { type: string }
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GeoIpReverseLookupResult" }
+        400:
+          description: Bad request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDTO" }
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDTO" }
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDTO" }
+
   /api/timezones:
     get:
       operationId: getAllTimezones
@@ -146,6 +186,13 @@ components:
         info: { $ref: "#/components/schemas/GeoIpInfo" }
         elapsed: { type: number }
       required: [ ip, elapsed ]
+    
+    GeoIpReverseLookupResult:
+      type: object
+      properties:
+        networks: { type: array, items: { type: string } }
+        elapsed: { type: number }
+      required: [ networks, elapsed ]
     
     GeoIpInfo:
       type: object
